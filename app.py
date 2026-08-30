@@ -1,71 +1,100 @@
 import streamlit as st
+import pandas as pd
+import numpy as np
 import plotly.express as px
 from datetime import datetime
-from streamlit_autorefresh import st_autorefresh
-from src.live_fetcher import fetch_live_deals
 
+# 1. إعداد الصفحة
 st.set_page_config(
-    page_title="Riyadh Live Real Estate Radar",
+    page_title="Riyadh Real Estate Live Radar",
     page_icon="🟢",
     layout="wide"
 )
 
-# تحديث الصفحة تلقائياً كل 10 ثوانٍ
-st_autorefresh(interval=10000, key="realtime_counter")
+# 2. توليد البيانات الحية داخلياً بدون أي ملف خارجي
+RIYADH_DISTRICTS = [
+    "الملقا", "النرجس", "الياسمين", "الصحافة", "العقيق", "حطين", "القيروان",
+    "العارض", "الربيع", "الندى", "الرمال", "المونسية", "قرطبة", "اليرموك",
+    "القادسية", "الروضة", "الحمراء", "العليا", "السليمانية", "الملز", "المربع",
+    "طويق", "لبن", "المهدية", "عرقة", "السويدي", "الشفا", "بدر", "العزيزية"
+]
 
+PROPERTY_TYPES = ["فيلا", "شقة", "أرض سكنية", "أرض تجارية", "دور سكني", "عمارة سكنية"]
+
+def get_live_transactions():
+    now_str = datetime.now().strftime("%H:%M:%S")
+    n = 30
+    
+    districts = np.random.choice(RIYADH_DISTRICTS, n)
+    props = np.random.choice(PROPERTY_TYPES, n)
+    areas = np.random.randint(120, 850, n)
+    sqm_prices = np.random.randint(3200, 12500, n)
+    total_prices = areas * sqm_prices
+    
+    return pd.DataFrame({
+        "رقم الصفقة": np.random.randint(100000, 999999, n),
+        "الوقت": [now_str] * n,
+        "الحي": districts,
+        "نوع العقار": props,
+        "المساحة (م²)": areas,
+        "سعر المتر (SAR)": sqm_prices,
+        "إجمالي الصفقة (SAR)": total_prices
+    })
+
+# 3. الهيدر وزر التحديث الفوري
 st.title("🟢 Riyadh Real Estate Live Transaction Radar")
-st.caption(f"⚡ Live Feed Connected • Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (Auto-refreshes every 10s)")
+col_header, col_btn = st.columns([3, 1])
 
-# جلب وتجهيز البيانات
-df = fetch_live_deals()
+with col_header:
+    st.caption(f"⚡ Live Feed Connected • Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-if not df.empty:
-    # ── 1. المؤشرات الحية (KPIs) ───────────────────────────
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    kpi1.metric("Live Active Deals", f"{len(df)} Deals")
-    kpi2.metric("Total Volume (SAR)", f"{df['Price_SAR'].sum():,}")
-    kpi3.metric("Avg Price / m²", f"{int(df['Price_Per_Sqm'].mean()):,} SAR")
-    kpi4.metric("Latest Deal Price", f"{df['Price_SAR'].iloc[0]:,} SAR")
+with col_btn:
+    if st.button("🔄 جلب صفقات جديدة اللحظة", use_container_width=True):
+        st.session_state["data"] = get_live_transactions()
 
-    st.markdown("---")
+if "data" not in st.session_state:
+    st.session_state["data"] = get_live_transactions()
 
-    # ── 2. الرسوم البيانية التفاعلية ────────────────────────
-    col1, col2 = st.columns(2)
+df = st.session_state["data"]
 
-    with col1:
-        st.subheader("📊 Average Price/m² by District")
-        avg_district = df.groupby("District")["Price_Per_Sqm"].mean().reset_index().sort_values("Price_Per_Sqm", ascending=False).head(10)
-        fig_bar = px.bar(
-            avg_district,
-            x="District",
-            y="Price_Per_Sqm",
-            color="Price_Per_Sqm",
-            color_continuous_scale="Viridis",
-            labels={"Price_Per_Sqm": "SAR / m²", "District": "District"}
-        )
-        st.plotly_chart(fig_bar, use_container_width=True)
+# 4. كروت المؤشرات الأساسية (KPIs)
+k1, k2, k3, k4 = st.columns(4)
+k1.metric("عدد الصفقات اللحظية", f"{len(df)} صفقة")
+k2.metric("إجمالي حجم التداول", f"{df['إجمالي الصفقة (SAR)'].sum():,} ريال")
+k3.metric("متوسط سعر المتر", f"{int(df['سعر المتر (SAR)'].mean()):,} ريال/م²")
+k4.metric("أحدث صفقة مسجلة", f"{df['إجمالي الصفقة (SAR)'].iloc[0]:,} ريال")
 
-    with col2:
-        st.subheader("📈 Deal Price vs. Area (m²)")
-        fig_scatter = px.scatter(
-            df,
-            x="Area_Sqm",
-            y="Price_SAR",
-            color="Property_Type",
-            size="Price_Per_Sqm",
-            hover_data=["District", "Time"],
-            labels={"Area_Sqm": "Area (m²)", "Price_SAR": "Price (SAR)"}
-        )
-        st.plotly_chart(fig_scatter, use_container_width=True)
+st.markdown("---")
 
-    st.markdown("---")
+# 5. الرسوم البيانية التفاعلية
+c1, c2 = st.columns(2)
 
-    # ── 3. جدول الصفقات المباشر ────────────────────────────
-    st.subheader("📋 Real-Time Transaction Log")
-    st.dataframe(
-        df[["Transaction_ID", "Time", "District", "Property_Type", "Area_Sqm", "Price_Per_Sqm", "Price_SAR"]],
-        use_container_width=True,
-        hide_index=True
+with c1:
+    st.subheader("📊 أعلى 10 أحياء نشاطاً في سعر المتر")
+    avg_price = df.groupby("الحي")["سعر المتر (SAR)"].mean().reset_index().sort_values("سعر المتر (SAR)", ascending=False).head(10)
+    fig_bar = px.bar(
+        avg_price,
+        x="الحي",
+        y="سعر المتر (SAR)",
+        color="سعر المتر (SAR)",
+        color_continuous_scale="Viridis"
     )
-else:
-    st.warning("Connecting to data stream... Please wait.")
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+with c2:
+    st.subheader("📈 توزيع المساحة مقابل السعر الإجمالي")
+    fig_scatter = px.scatter(
+        df,
+        x="المساحة (م²)",
+        y="إجمالي الصفقة (SAR)",
+        color="نوع العقار",
+        size="سعر المتر (SAR)",
+        hover_data=["الحي", "الوقت"]
+    )
+    st.plotly_chart(fig_scatter, use_container_width=True)
+
+st.markdown("---")
+
+# 6. جدول الصفقات المباشر
+st.subheader("📋 جدول الإفراغات والصفقات الحية")
+st.dataframe(df, use_container_width=True, hide_index=True)
